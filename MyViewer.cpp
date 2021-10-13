@@ -10,6 +10,8 @@
 #include <OpenMesh/Core/IO/MeshIO.hh>
 #include <OpenMesh/Tools/Smoother/JacobiLaplaceSmootherT.hh>
 
+#include "Eigen/LU"
+
 #ifdef BETTER_MEAN_CURVATURE
 #include "Eigen/Eigenvalues"
 #include "Eigen/Geometry"
@@ -55,6 +57,8 @@ void MyViewer::updateMeanMinMax() {
   mean.reserve(n);
   for (auto v : mesh.vertices())
     mean.push_back(mesh.data(v).mean);
+
+  std::cout << "Mean sum: " << std::accumulate(mean.begin(), mean.end(), 0.0) << std::endl;
 
   std::sort(mean.begin(), mean.end());
   size_t k = (double)n * cutoff_ratio;
@@ -268,8 +272,66 @@ Vec MyViewer::meanMapColor(double d) const {
 }
 
 void MyViewer::fairMesh() {
-  if (model_type != ModelType::MESH)
+  if (model_type != ModelType::MESH) {
+    // Discrete Coons style transfinite patch
+    static size_t next_type = 0;
+    std::vector<double> alphas = {
+      -0.25,  // Coons
+      -0.257, // "nice"
+      -0.259, // even better?
+      0.0,    // minimal (discrete Laplacian)
+      0.25,   // harmonic
+      0.375,  // Dirichlet
+      1./11.  // strain
+    };
+    double alpha = alphas[next_type];
+    std::cout << "Setting alpha to " << alpha << std::endl;
+    next_type = next_type == alphas.size() - 1 ? 0 : next_type + 1;
+    double beta = (1.0 - 4 * alpha) / 4.0;
+
+    size_t n = control_points.size();
+    size_t m = n - 2 * degree[0] - 2 * degree[1];
+    Eigen::MatrixXd A = Eigen::MatrixXd::Zero(m, m);
+    Eigen::MatrixXd b = Eigen::MatrixXd::Zero(m, 3);
+
+    auto convertIndex = [=](size_t i, size_t j) {
+      return (i - 1) * (degree[1] - 1) + j - 1;
+    };
+
+    for (size_t i = 1; i < degree[0]; ++i)
+      for (size_t j = 1; j < degree[1]; ++j) {
+        size_t row = convertIndex(i, j);
+        A(row, row) = -1.0;
+        for (int k = -1; k <= 1; ++k)
+          for (int l = -1; l <= 1; ++l) {
+            if (k == 0 && l == 0)
+              continue;
+            double weight = k * l == 0 ? beta : alpha;
+            if (i + k == 0 || i + k == degree[0] ||
+                j + l == 0 || j + l == degree[1]) {
+              size_t index = (i + k) * (degree[1] + 1) + (j + l);
+              b(row, 0) -= control_points[index][0] * weight;
+              b(row, 1) -= control_points[index][1] * weight;
+              b(row, 2) -= control_points[index][2] * weight;
+            } else
+              A(row, convertIndex(i + k, j + l)) = weight;
+          }
+      }
+
+    Eigen::MatrixXd x = A.fullPivLu().solve(b);
+
+    for (size_t i = 1; i < degree[0]; ++i)
+      for (size_t j = 1; j < degree[1]; ++j) {
+        size_t xi = convertIndex(i, j);
+        size_t index = i * (degree[1] + 1) + j;
+        control_points[index][0] = x(xi, 0);
+        control_points[index][1] = x(xi, 1);
+        control_points[index][2] = x(xi, 2);
+      }
+
+    updateMesh(true);
     return;
+  }
 
   emit startComputation(tr("Fairing mesh..."));
   OpenMesh::Smoother::JacobiLaplaceSmootherT<MyMesh> smoother(mesh);
