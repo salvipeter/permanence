@@ -1,3 +1,11 @@
+# Permanence patch tests
+
+This is a fork of my [sample framework](https://github.com/salvipeter/sample-framework/).
+You can load a Bézier surface and then press `f` a couple of times to see the effect of different masks,
+based on the papers of [Farin & Hansford](https://doi.org/10.1016/S0167-8396(99)00031-X) and [Monterde](https://doi.org/10.1016/j.cagd.2003.07.009).
+
+There is also a Julia implementation (`bezier.jl`) with C1 masks.
+
 # Usage
 
 Pressing `h` displays a help window that contains all the necessary information.
