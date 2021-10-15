@@ -23,9 +23,8 @@ function readGBP(filename)
     local result
     open(filename) do f
         n, d = read_numbers(f, Int)
-        l = Int(floor((d + 1) / 2))
-        cp = 1 + Int(floor(d / 2))
-        cp = n * cp * l + 1
+        l = (d + 1) ÷ 2
+        cp = n * (d ÷ 2 + 1) * l + 1
         side, col, row = 1, 0, 0
         center = read_numbers(f, Float64)
         result = BezierPatch(n, d, center, Dict())
@@ -76,11 +75,11 @@ function writeOBJ(surface, filename)
             println(f, "l $(n+1) $(n+2)")
             n += 2
         end
+        p = surface.center
+        println(f, "v $(p[1]) $(p[2]) $(p[3])")
+        n += 1
+        println(f, "p $n")
         if iseven(surface.d)
-            p = surface.center
-            println(f, "v $(p[1]) $(p[2]) $(p[3])")
-            n += 1
-            println(f, "p $n")
             l = surface.d ÷ 2
             for i in 1:surface.n
                 p = surface[i,l,l-1]
@@ -89,6 +88,19 @@ function writeOBJ(surface, filename)
             end
         end
     end
+end
+
+function normalize_index(n, d, i, j, k)
+    while j < k || j >= d - k
+        if j < k
+            i = mod1(i - 1, n)
+            j, k = d - k, j
+        else
+            i = mod1(i + 1, n)
+            j, k = k, d - j
+        end
+    end
+    (i, j, k)
 end
 
 function smooth_controls(surface, α = -1/4)
@@ -101,15 +113,7 @@ function smooth_controls(surface, α = -1/4)
     last = iseven(surface.d) ? 1 : 0
     function geti(i, j, k)
         iseven(surface.d) && j == k == layers && return 1 # central cp
-        while j < k || j >= surface.d - k
-            if j < k
-                i = mod1(i - 1, surface.n)
-                j, k = surface.d - k, j
-            else
-                i = mod1(i + 1, surface.n)
-                j, k = k, surface.d - j
-            end
-        end
+        (i, j, k) = normalize_index(surface.n, surface.d, i, j, k)
         haskey(index, (i,j,k)) && return index[i,j,k]
         last += 1
         index[i,j,k] = last
@@ -123,8 +127,12 @@ function smooth_controls(surface, α = -1/4)
         for x in -1:1, y in -1:1
             x == 0 && y == 0 && continue
             weight = x * y == 0 ? β : α
-            if j + x == 0 || k + y == 0 || j + x == surface.d
-                b[row,:] += surface[i,j,k] * weight
+            if isodd(surface.d) && k + y == layers &&
+                (j == layers && x == -1 || j == layers - 1 && x == 1)
+                b[row,:] += surface.center * weight # assuming fixed center point
+            elseif j + x == 0 || k + y == 0 || j + x == surface.d
+                ijk = normalize_index(surface.n, surface.d, i, j+x, k+y)
+                b[row,:] += surface[ijk] * weight
             else
                 col = geti(i, j + x, k + y)
                 A[row,col] = -weight
