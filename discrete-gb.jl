@@ -103,6 +103,69 @@ function normalize_index(n, d, i, j, k)
     (i, j, k)
 end
 
+function c0coons(surface)
+    α = -1/4
+    β = (1 - 4α) / 4
+    n = surface.n
+    d = surface.d
+    @assert isodd(d) "This only works for odd degrees"
+    boundary = d * n
+    layers = (d + 1) ÷ 2
+    nvars = (d - 1) ^ 2
+    result = BezierPatch(n, d, surface.center, Dict{GBIndex,Point}())
+
+    function index_map(i, j, k)
+        if k >= layers
+            if j >= layers
+                (mod1(i + 1, n), k, d - j)
+            else
+                (mod1(i - 1, n), d - k, j)
+            end
+        else
+            (i, j, k)
+        end
+    end
+
+    for i in 1:n
+        A = one(Matrix{Float64}(undef, nvars, nvars))
+        b = zeros(nvars, 3)
+        for j in 1:d-1, k in 1:d-1
+            row = (j - 1) * (d - 1) + k
+            for x in -1:1, y in -1:1
+                x == 0 && y == 0 && continue
+                weight = x * y == 0 ? β : α
+                if j + x == 0 || j + x == d || k + y == 0 || k + y == d
+                    b[row,:] += surface[index_map(i,j+x,k+y)] * weight
+                else
+                    col = (j + x - 1) * (d - 1) + (k + y)
+                    A[row,col] = -weight
+                end
+            end
+        end
+
+        sol = A \ b
+        for j in 0:d, k in 0:d
+            ijk = index_map(i, j, k)
+            ijk2 = ijk[2] < layers ? (mod1(ijk[1] - 1, n), d - ijk[3], ijk[2]) : (mod1(ijk[1] + 1, n), ijk[3], d - ijk[2])
+            index = (j - 1) * (d - 1) + k
+            if !haskey(result.cpts, ijk)
+                if j == 0 || j == d || k == 0 || k == d
+                    result[ijk] = surface[ijk]
+                    result[ijk2] = surface[ijk]
+                else
+                    result[ijk] = [0.,0,0]
+                    result[ijk2] = [0.,0,0]
+                end
+            end
+            (j == 0 || j == d || k == 0 || k == d) && continue
+            result[ijk] += sol[index,:] / 4
+            result[ijk2] += sol[index,:] / 4
+        end
+    end
+
+    result
+end
+
 function smooth_controls(surface, α = -1/4)
     β = (1 - 4α) / 4
     boundary = surface.d * surface.n
