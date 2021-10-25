@@ -50,6 +50,30 @@ function readGBP(filename)
     result
 end
 
+function writeGBP(surface, filename)
+    n, d = surface.n, surface.d
+    l = (d + 1) ÷ 2
+    cp = n * (d ÷ 2 + 1) * l + 1
+    side, col, row = 1, 0, 0
+    open(filename, "w") do f
+        println(f, "$n $d")
+        printpoint(p) = println(f, "$(p[1]) $(p[2]) $(p[3])")
+        printpoint(surface.center)
+        for i in 1:cp-1
+            if col >= d - row
+                side += 1
+                if side > n
+                    side = 1
+                    row += 1
+                end
+                col = row
+            end
+            printpoint(surface[side,col,row])
+            col += 1
+        end
+    end
+end
+
 function writeOBJ(surface, filename)
     open(filename, "w") do f
         for (i, p) in surface.cpts
